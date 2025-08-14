@@ -1,7 +1,7 @@
 ---
 output: html_document
 params:
-  sex: "Both Sexes, "
+  sex: "All individuals, "
   dat: "../r2_results/geno_correlation_sig.r2"
 title: "`r params$sex` LD scores correlation matrix: Clustering"
 ---
@@ -31,7 +31,7 @@ corr <- fread(params$dat, key=c("p1", "p2"))
 # want a phenotype specific table too, which you can naivigate - this won`t be big so can easily include using Raymonds methods.
 # want to run UMAP.
 # want to run PCA.
-# Include all the relevant links to the UK biobank website. 
+# Include all the relevant links to the UK biobank website.
 # Ideally, want the numbers associated to each phenotype...would need to parse the summary file for that.
 # Want to add titles etc to the plotly plots that I created that say what everything is.
 # Get rid of the gross buttons....or at the very least, figure out how to centre them.
@@ -40,9 +40,9 @@ corr <- fread(params$dat, key=c("p1", "p2"))
 
 Here are the correlations between the UK Biobank phenotypes, restricting to the subset as defined heritability results website.
 
-Rows and columns are ordered by correlation distance using hierarchical clustering using the 'complete' method. 
+Rows and columns are ordered by correlation distance using hierarchical clustering using the 'complete' method.
 
-You can also explore the [male](correlation_plots_agglo_male.html) and [female](correlation_plots_agglo_female.html) specific correlation matrices.
+<!-- Sex-specific matrices not applicable for FinnGen inputs -->
 
 <br>
 

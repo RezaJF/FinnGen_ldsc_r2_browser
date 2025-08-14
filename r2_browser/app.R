@@ -5,16 +5,11 @@ library(dplyr)
 library(DT)
 library(shinyWidgets)
 library(shinyjs)
+library(plotly)
 
 load("Rdata_outputs/geno_correlation_sig.Rdata")
 df <- geno_corr_df
 df$p[which(df$p == 0)] <- 1e-308
-load("Rdata_outputs/geno_correlation_male_sig.Rdata")
-df_m <- geno_corr_df
-df_m$p[which(df_m$p == 0)] <- 1e-308
-load("Rdata_outputs/geno_correlation_female_sig.Rdata")
-df_f <- geno_corr_df
-df_f$p[which(df_f$p == 0)] <- 1e-308
 
 fix_dataframe <- function(df, rpheno=TRUE, full_html_path=TRUE) {
     # Restrict to subset of columns
@@ -31,13 +26,13 @@ fix_dataframe <- function(df, rpheno=TRUE, full_html_path=TRUE) {
     df$p2 <- as.factor(df$p2)
     if(rpheno) {
         df <- df %>% rename("ID1" = p1, "ID2" = p2, "Phenotype 1" = description_p1, "Phenotype 2" = description_p2,
-        "h2" = h2_obs, "h2 SE" = h2_obs_se, "rg SE" = se, "h2 intercept" = h2_int, "h2 intercept SE" = h2_int_se, 
+        "h2" = h2_obs, "h2 SE" = h2_obs_se, "rg SE" = se, "h2 intercept" = h2_int, "h2 intercept SE" = h2_int_se,
         "rg intercept" = gcov_int, "rg intercept SE" = gcov_int_se, "rpheno" = r2p, "Z" = z)
         setcolorder(df, c("ID1", "ID2", "Phenotype 1",
         "Phenotype 2", "h2", "h2 SE", "h2 intercept", "h2 intercept SE", "rpheno", "rg", "rg SE", "Z","p", "rg intercept", "rg intercept SE"))
     } else {
         df <- df %>% rename("ID1" = p1, "ID2" = p2, "Phenotype 1" = description_p1, "Phenotype 2" = description_p2,
-        "h2" = h2_obs, "h2 SE" = h2_obs_se, "rg SE" = se, "h2 intercept" = h2_int, "h2 intercept SE" = h2_int_se, 
+        "h2" = h2_obs, "h2 SE" = h2_obs_se, "rg SE" = se, "h2 intercept" = h2_int, "h2 intercept SE" = h2_int_se,
         "rg intercept" = gcov_int, "rg intercept SE" = gcov_int_se, "Z" = z)
         setcolorder(df, c("ID1", "ID2", "Phenotype 1",
         "Phenotype 2", "h2", "h2 SE", "h2 intercept", "h2 intercept SE", "rg", "rg SE", "Z","p", "rg intercept", "rg intercept SE"))
@@ -46,17 +41,12 @@ fix_dataframe <- function(df, rpheno=TRUE, full_html_path=TRUE) {
     return(list(df = df, choices = choices))
 }
 
-df <- fix_dataframe(df)
-df_m <- fix_dataframe(df_m, rpheno=FALSE)
-df_f <- fix_dataframe(df_f, rpheno=FALSE)
-
-choices <- unique(c(df$choices, df_m$choices, df_f$choices))
+df <- fix_dataframe(df, rpheno=FALSE, full_html_path=FALSE)
+choices <- unique(df$choices)
 df <- df$df
-df_m <- df_m$df
-df_f <- df_f$df
 
 # min/max for the coloring
-lo <- -1 
+lo <- -1
 hi <- 1
 
 n <- length(unique(geno_corr_df$description_p1))
@@ -67,7 +57,7 @@ choices <- factor(c("All", as.character(choices)))
 
 
 ui <- navbarPage(
-    title = "UKBB Genetic Correlation", position='fixed-top',
+    title = "FinnGen Genetic Correlation", position='fixed-top',
     tabPanel("Browser",
         fluidPage(
             useShinyjs(),
@@ -76,7 +66,7 @@ ui <- navbarPage(
                 tags$head(tags$script(src="rainbowvis.js")),
                 sidebarLayout(
                     sidebarPanel(
-                        sliderInput("slider2", label = "\\(r_g\\) range:", min = -1, max = 1, value = c(-10, 10), step=0.001),
+                        sliderInput("slider2", label = "\\(r_g\\) range:", min = -1, max = 1, value = c(-1, 1), step=0.001),
                         sliderTextInput("pvalue","\\(p\\)-value of \\(r_g\\):",
                             choices=c(0, 10^(seq(-8,0))), selected=c(0,1), grid = TRUE),
                         selectizeInput('pheno1', label='Phenotype 1', choices=choices, multiple=TRUE, selected='All', list(placeholder = 'select a collection of phenotypes')),
@@ -85,11 +75,14 @@ ui <- navbarPage(
                         width=3
                     ),
                     mainPanel(
-                      tabsetPanel(type = "tabs", id='opentab',
-                                  tabPanel("Both sexes", DT::dataTableOutput("rg_js")),
-                                  tabPanel("Males", DT::dataTableOutput("rg_js_m")),
-                                  tabPanel("Females", DT::dataTableOutput("rg_js_f")))
+                      tabsetPanel(type = "tabs",
+                        tabPanel("Table", DT::dataTableOutput("rg_js")),
+                        tabPanel("Volcano",
+                          selectizeInput('volcano_pheno', label='Phenotype (volcano)', choices=levels(df$ID1), multiple=FALSE),
+                          plotlyOutput('volcano_plot', height = '500px')
+                        )
                       )
+                    )
                 )
             )
         )
@@ -111,7 +104,7 @@ server <- function(input, output) {
             df <- df %>% filter(ID2 %in% gsub(":.*", "", input$pheno2))
         }
 
-        return(df %>% filter(rg >= input$slider2[1], rg <= input$slider2[2], 
+        return(df %>% filter(rg >= input$slider2[1], rg <= input$slider2[2],
                              p >= input$pvalue[1], p <= input$pvalue[2]))
     }
 
@@ -125,7 +118,7 @@ server <- function(input, output) {
         }
 
         where_rg <- which(names(df) == 'rg') - 1 - var_before_rg
-        columns_invisible <- which(names(df) %in% c("h2", "h2 SE", "rg SE", "h2 intercept", "h2 intercept SE", 
+        columns_invisible <- which(names(df) %in% c("h2", "h2 SE", "rg SE", "h2 intercept", "h2 intercept SE",
             "rg intercept", "rg intercept SE", "rpheno", "Z")) - 1
 
         thin_cols <- which(names(df) %in% c("h2", "h2 SE", "h2 intercept", "h2 intercept SE", "rpheno", "rg", "rg SE", "Z", "p", "rg intercept", "rg intercept SE")) - 1
@@ -137,9 +130,9 @@ server <- function(input, output) {
                   style = 'caption-side: top; text-align: left;',
                   htmltools::em('Columns can be added and removed using the column visibility button.', tags$br(),
                     'p-values less than or equal to 1e-308 are set to 1e-308 due to floating point precision, exact p-values can be calculated from the Z-scores.')
-                ), 
+                ),
                 escape = FALSE,
-                extensions = c('Buttons'), 
+                extensions = c('Buttons'),
                 options = list(
                     dom='Btlpr',
                     buttons = I('colvis'),
@@ -152,11 +145,11 @@ server <- function(input, output) {
                                     list(width='30px', targets=thin_cols)),
                     rowCallback = DT::JS(paste0(
                         'function(row, data) {
-                          
+
                           var rainbow = new Rainbow();
                           rainbow.setSpectrum("#6495ed", "white", "#cd5555");
 
-                          rainbow.setNumberRange(',lo,',',hi,'); 
+                          rainbow.setNumberRange(',lo,',',hi,');
                           var v = ', where_rg, ';
                           $("td:eq("+v+")", row).html("<span style=\'display: block; padding: 0 4px; border-radius: 4px; background-color: " + "#" + rainbow.colourAt(data[v+',var_before_rg,']) + ";\'>" + Math.round(data[v+',var_before_rg,'] * 100) / 100 + "</span>")
                         }'
@@ -167,44 +160,38 @@ server <- function(input, output) {
     }
 
     dt <- create_dt(df)
-    dt_m <- create_dt(df_m, FALSE)
-    dt_f <- create_dt(df_f, FALSE)
 
     output$rg_js <- DT::renderDataTable(
-        server = TRUE, dt %>% formatSignif(c('p', 'h2', 'h2 SE', 'rg SE', 'h2 intercept', 'h2 intercept SE', 'rg intercept', 'rg intercept SE', 'Z'), digits=3) %>% 
-        formatRound(c('rpheno'), 2)
+        server = TRUE, dt %>% formatSignif(c('p', 'h2', 'h2 SE', 'rg SE', 'h2 intercept', 'h2 intercept SE', 'rg intercept', 'rg intercept SE', 'Z'), digits=3)
     )
 
-    output$rg_js_m <- DT::renderDataTable(
-        server = TRUE, dt_m %>% formatSignif(c('p', 'h2', 'h2 SE', 'rg SE', 'h2 intercept', 'h2 intercept SE', 'rg intercept', 'rg intercept SE', 'Z'), digits=3)
-    )
-
-    output$rg_js_f <- DT::renderDataTable(
-        server = TRUE, dt_f %>% formatSignif(c('p', 'h2', 'h2 SE', 'rg SE', 'h2 intercept', 'h2 intercept SE', 'rg intercept', 'rg intercept SE', 'Z'), digits=3)
-    )
-
-    observeEvent(input$opentab, {
-        dl_btn <- function(df) {
-        return(
-            downloadHandler(
-                filename = function() {
-                    paste('data-', Sys.Date(), '.csv', sep='')
-                },
-                content = function(con) {
-                    write.csv(restrict(df), con, row.names=FALSE)
-                }
-            )
-        )
+    output$volcano_plot <- renderPlotly({
+        req(input$volcano_pheno)
+        dat_pheno <- df %>% filter(ID1 == input$volcano_pheno)
+        if (nrow(dat_pheno) == 0) {
+            return(NULL)
         }
-        if(input$opentab == "Both sexes")
-        {
-            output$downloadData <- dl_btn(df)
-        } else if(input$opentab == "Males") {
-            output$downloadData <- dl_btn(df_m)
-        } else {
-            output$downloadData <- dl_btn(df_f)
-        }
+        dat_pheno$logp <- -(log(2) + pnorm(-abs(dat_pheno$Z), log.p=TRUE)) / log(10)
+        plot_ly(dat_pheno, x = ~rg, y = ~logp, type='scatter', mode='markers',
+                text=~paste0(ID1, " : ", ID2, "\n",
+                             `Phenotype 1`, " : ", `Phenotype 2`, "\n",
+                             "Correlation : ", signif(rg, 3), "\n",
+                             "p-value: ", signif(p, 3)),
+                hoverinfo='text', color=~I(ifelse(rg>=0, 'indianred3', 'cornflowerblue'))) %>%
+            layout(xaxis = list(title="Genotypic correlation (r_g)", range=c(-1,1)),
+                   yaxis = list(title="-log10(p)"))
     })
+
+
+
+    output$downloadData <- downloadHandler(
+        filename = function() {
+            paste('data-', Sys.Date(), '.csv', sep='')
+        },
+        content = function(con) {
+            write.csv(restrict(df), con, row.names=FALSE)
+        }
+    )
 
     })
 
